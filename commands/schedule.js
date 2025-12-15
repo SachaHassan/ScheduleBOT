@@ -84,8 +84,8 @@ module.exports = {
         }
 
         // Insert into DB
-        const stmt = db.prepare('INSERT INTO events (userId, description, eventTime, reminderOffsets, target, channelId) VALUES (?, ?, ?, ?, ?, ?)');
-        stmt.run(interaction.user.id, description, parseDate.toISOString(), JSON.stringify(reminders), targetId, interaction.channelId);
+        const stmt = db.prepare('INSERT INTO events (userId, description, eventTime, reminderOffsets, target, channelId, sentReminders) VALUES (?, ?, ?, ?, ?, ?, ?)');
+        stmt.run(interaction.user.id, description, parseDate.toISOString(), JSON.stringify(reminders), targetId, interaction.channelId, '[]');
 
         await interaction.reply({ content: ` Événement planifié : **${description}**\n Date : ${parseDate.toLocaleString('fr-FR')}\n🔔 Rappels : ${reminders.join(', ')} minutes avant\n  Cible : ${targetId === 'everyone' ? '@everyone' : `<@${targetId}>`}` });
     },

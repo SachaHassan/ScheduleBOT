@@ -68,24 +68,36 @@ function checkReminders() {
     for (const event of events) {
         const eventTime = new Date(event.eventTime);
         const offsets = JSON.parse(event.reminderOffsets); // offsets in minutes
+        let sentReminders = [];
+        try {
+            sentReminders = JSON.parse(event.sentReminders || '[]');
+        } catch (e) {
+            sentReminders = [];
+        }
 
-        // We need to store state of sent reminders to avoid spamming.
-        // For simplicity in this first version, we might just check if "now" is close to "eventTime - offset"
-        // But better approach: Store "sentReminders" in DB or check if time is within a small window.
-        // Let's refine the logic:
-        // We will assume the check runs every minute. 
-        // If (eventTime - offset) is within the last minute, send ping.
+        let updated = false;
 
         offsets.forEach(offsetMinutes => {
+            // Check if already sent
+            if (sentReminders.includes(offsetMinutes)) return;
+
             const reminderTime = new Date(eventTime.getTime() - offsetMinutes * 60000);
             const timeDiff = now.getTime() - reminderTime.getTime();
 
-            // If the reminder time was within the last 60 seconds (inclusive of 0, typically)
-            // AND we ensure we don't double send (could be tricky with just simple interval, but 1 min interval + 1 min window is standard "cron" logic)
-            if (timeDiff >= 0 && timeDiff < 60000) {
+            // Logic: If time has passed (timeDiff > 0) AND it's not too old (e.g., < 24 hours late)
+            // We send the ping. This covers restart gaps.
+            // 24 hours = 86400000 ms
+            if (timeDiff >= 0 && timeDiff < 86400000) {
                 sendReminder(event, offsetMinutes);
+                sentReminders.push(offsetMinutes);
+                updated = true;
             }
         });
+
+        if (updated) {
+            const updateStmt = db.prepare('UPDATE events SET sentReminders = ? WHERE id = ?');
+            updateStmt.run(JSON.stringify(sentReminders), event.id);
+        }
     }
 }
 
@@ -97,7 +109,7 @@ async function sendReminder(event, offsetMinutes) {
             if (offsetMinutes === 0) {
                 message += `C'est maintenant !`;
             } else {
-                message += `Dans ${offsetMinutes} minutes !`; // Basic formatting, can be improved to "1 jour", "1 heure"
+                message += `Dans ${offsetMinutes} minutes !`;
             }
 
             let content = message;

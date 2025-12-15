@@ -9,8 +9,16 @@ db.exec(`
     eventTime TEXT NOT NULL,
     reminderOffsets TEXT NOT NULL, -- JSON array of offsets in minutes
     target TEXT NOT NULL,
-    channelId TEXT NOT NULL
+    channelId TEXT NOT NULL,
+    sentReminders TEXT DEFAULT '[]' -- JSON array of sent offsets
   )
 `);
+
+// Migration for existing tables
+try {
+  db.exec('ALTER TABLE events ADD COLUMN sentReminders TEXT DEFAULT \'[]\'');
+} catch (error) {
+  // Column likely already exists
+}
 
 module.exports = db;
