@@ -3,6 +3,14 @@ const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, Events } = require('discord.js');
 const db = require('./db');
+const http = require('http');
+
+const server = http.createServer((req, res) => {
+    res.writeHead(200);
+    res.end('Bot is alive!');
+});
+
+server.listen(process.env.PORT || 3000);
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
