@@ -90,13 +90,13 @@ module.exports = {
             reminderText = `\n🔔 Rappels : ${preReminders.map(r => `${r} min`).join(', ')} avant`;
         } else if (hasRemindersInput) {
             // User explicitly typed "0" or something that parsed to 0
-            reminderText = `\n🔔 Rappel : Au moment de l'événement`;
+            reminderText = "";
         } else {
             // Default case (no input) -> Don't show "Rappels" line, or just say basic.
             // User asked "j'aimerai ne pas afficher un 'Rappel: 0 minutes avant'"
             // So we show nothing specific about reminders, implying standard behavior.
         }
 
-        await interaction.reply({ content: `✅ Événement planifié : **${description}**\n📅 Date : ${parseDate.toLocaleString('fr-FR')}${reminderText}\n🎯 Cible : ${targetId === 'everyone' ? '@everyone' : `<@${targetId}>`}` });
+        await interaction.reply({ content: ` Événement planifié : **${description}**\n Date : ${parseDate.toLocaleString('fr-FR')}${reminderText}\n Cible : ${targetId === 'everyone' ? '@everyone' : `<@${targetId}>`}` });
     },
 };
