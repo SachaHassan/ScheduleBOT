@@ -35,41 +35,37 @@ module.exports = {
         }
 
         // Parse reminders
-        // Expected format: numbers followed by d/h/m, separated by commas
-        // e.g. "1d, 30m" -> [1440, 30]
+        // Expected format: numbers followed by d/h/m/j, separated by commas
         const reminders = [];
-        const parts = remindersInput.split(',').map(s => s.trim());
-        for (const part of parts) {
-            const match = part.match(/^(\d+)([dhm])$/);
-            if (match) {
-                const val = parseInt(match[1]);
-                const unit = match[2];
-                let minutes = 0;
-                if (unit === 'd') minutes = val * 24 * 60;
-                if (unit === 'h') minutes = val * 60;
-                if (unit === 'm') minutes = val;
-                reminders.push(minutes);
-            } else if (part === '0') { // allow just '0'
-                reminders.push(0);
+        // If user didn't provide reminders, we default to 0 (at event time) 
+        // but we might want to track this difference for display.
+        const hasRemindersInput = !!remindersInput;
+
+        if (hasRemindersInput) {
+            // Flexible parsing: allow spaces, french units (j/h/m/min)
+            const parts = remindersInput.split(',').map(s => s.trim().toLowerCase());
+            for (const part of parts) {
+                // Regex: Number + optional space + unit (d, j, h, m, min...)
+                const match = part.match(/^(\d+)\s*(j|d|jour|jours|h|heure|heures|m|min|minute|minutes)?$/);
+                if (match) {
+                    const val = parseInt(match[1]);
+                    const unit = match[2] || 'm'; // default to minutes if no unit? or strict? let's default 'm' if they just type number
+
+                    let minutes = 0;
+                    if (['d', 'j', 'jour', 'jours'].includes(unit)) minutes = val * 24 * 60;
+                    else if (['h', 'heure', 'heures'].includes(unit)) minutes = val * 60;
+                    else minutes = val; // m, min, minutes
+
+                    reminders.push(minutes);
+                }
             }
         }
-        if (reminders.length === 0) reminders.push(0); // Default to on time if parsing fails or empty logic
+
+        if (reminders.length === 0) reminders.push(0); // Always ensure at least ping at event time
 
         // Determine target
         let targetId;
         if (targetOption) {
-            // Check if it's a role or user. 
-            // If it's @everyone, targetOption might be null depending on how discord.js handles it sometimes, 
-            // but usually Mentions won't capture @everyone directly as a specific user object without role handling.
-            // Actually SlashCommand Mentionable returns user or role.
-            // If user types @everyone, it might not be a 'mentionable' in the standard object sense if not allowed,
-            // but let's assume valid role/user.
-            // Special case for @everyone text if passed as string? No, it's an option type.
-
-            // If the user selects a role like @everyone (which is the guild ID role usually), use it.
-            // Or if they explicitly mention a user.
-
-            // For simplicitly, we store ID.
             if (targetOption.user) {
                 targetId = targetOption.user.id;
             } else if (targetOption.role) {
@@ -87,6 +83,20 @@ module.exports = {
         const stmt = db.prepare('INSERT INTO events (userId, description, eventTime, reminderOffsets, target, channelId, sentReminders) VALUES (?, ?, ?, ?, ?, ?, ?)');
         stmt.run(interaction.user.id, description, parseDate.toISOString(), JSON.stringify(reminders), targetId, interaction.channelId, '[]');
 
-        await interaction.reply({ content: ` Événement planifié : **${description}**\n Date : ${parseDate.toLocaleString('fr-FR')}\n🔔 Rappels : ${reminders.join(', ')} minutes avant\n  Cible : ${targetId === 'everyone' ? '@everyone' : `<@${targetId}>`}` });
+        // Format display
+        let reminderText = "";
+        const preReminders = reminders.filter(r => r > 0);
+        if (preReminders.length > 0) {
+            reminderText = `\n🔔 Rappels : ${preReminders.map(r => `${r} min`).join(', ')} avant`;
+        } else if (hasRemindersInput) {
+            // User explicitly typed "0" or something that parsed to 0
+            reminderText = `\n🔔 Rappel : Au moment de l'événement`;
+        } else {
+            // Default case (no input) -> Don't show "Rappels" line, or just say basic.
+            // User asked "j'aimerai ne pas afficher un 'Rappel: 0 minutes avant'"
+            // So we show nothing specific about reminders, implying standard behavior.
+        }
+
+        await interaction.reply({ content: `✅ Événement planifié : **${description}**\n📅 Date : ${parseDate.toLocaleString('fr-FR')}${reminderText}\n🎯 Cible : ${targetId === 'everyone' ? '@everyone' : `<@${targetId}>`}` });
     },
 };
