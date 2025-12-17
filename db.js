@@ -1,24 +1,35 @@
-const Database = require('better-sqlite3');
-const db = new Database('schedule.db', { verbose: console.log });
+```javascript
+const { Pool } = require('pg');
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    userId TEXT NOT NULL,
-    description TEXT NOT NULL,
-    eventTime TEXT NOT NULL,
-    reminderOffsets TEXT NOT NULL, -- JSON array of offsets in minutes
-    target TEXT NOT NULL,
-    channelId TEXT NOT NULL,
-    sentReminders TEXT DEFAULT '[]' -- JSON array of sent offsets
-  )
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false
+  }
+});
+
+const initDB = async () => {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS events(
+  id SERIAL PRIMARY KEY,
+  userId TEXT NOT NULL,
+  description TEXT NOT NULL,
+  eventTime TEXT NOT NULL,
+  reminderOffsets TEXT NOT NULL,
+  target TEXT NOT NULL,
+  channelId TEXT NOT NULL,
+  sentReminders TEXT DEFAULT '[]'
+);
 `);
+        console.log("✅ Database initialized (PostgreSQL)");
+    } catch (err) {
+        console.error("❌ Error initializing database:", err);
+    }
+};
 
-// Migration for existing tables
-try {
-  db.exec('ALTER TABLE events ADD COLUMN sentReminders TEXT DEFAULT \'[]\'');
-} catch (error) {
-  // Column likely already exists
-}
+// Initialize on startup
+initDB();
 
-module.exports = db;
+module.exports = pool;
+```

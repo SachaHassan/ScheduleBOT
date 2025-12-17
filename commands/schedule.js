@@ -80,8 +80,11 @@ module.exports = {
         }
 
         // Insert into DB
-        const stmt = db.prepare('INSERT INTO events (userId, description, eventTime, reminderOffsets, target, channelId, sentReminders) VALUES (?, ?, ?, ?, ?, ?, ?)');
-        stmt.run(interaction.user.id, description, parseDate.toISOString(), JSON.stringify(reminders), targetId, interaction.channelId, '[]');
+        // Insert into DB
+        await db.query(
+            'INSERT INTO events (userId, description, eventTime, reminderOffsets, target, channelId, sentReminders) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+            [interaction.user.id, description, parseDate.toISOString(), JSON.stringify(reminders), targetId, interaction.channelId, '[]']
+        );
 
         // Format display
         let reminderText = "";

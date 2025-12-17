@@ -57,53 +57,55 @@ client.on(Events.InteractionCreate, async interaction => {
     }
 });
 
-function checkReminders() {
+async function checkReminders() {
     console.log('Checking for reminders...');
     const now = new Date();
 
-    // Get all events
-    const stmt = db.prepare('SELECT * FROM events');
-    const events = stmt.all();
+    try {
+        // Get all events
+        const res = await db.query('SELECT * FROM events');
+        const events = res.rows;
 
-    for (const event of events) {
-        const eventTime = new Date(event.eventTime);
-        const offsets = JSON.parse(event.reminderOffsets); // offsets in minutes
-        let sentReminders = [];
-        try {
-            sentReminders = JSON.parse(event.sentReminders || '[]');
-        } catch (e) {
-            sentReminders = [];
-        }
-
-        let updated = false;
-
-        offsets.forEach(offsetMinutes => {
-            // Check if already sent
-            if (sentReminders.includes(offsetMinutes)) return;
-
-            const reminderTime = new Date(eventTime.getTime() - offsetMinutes * 60000);
-            const timeDiff = now.getTime() - reminderTime.getTime();
-
-            // Logic: If time has passed (timeDiff > 0) AND it's not too old (e.g., < 24 hours late)
-            // We send the ping. This covers restart gaps.
-            // 24 hours = 86400000 ms
-            if (timeDiff >= 0 && timeDiff < 86400000) {
-                sendReminder(event, offsetMinutes);
-                sentReminders.push(offsetMinutes);
-                updated = true;
+        for (const event of events) {
+            // PostgreSQL columns are lowercase by default
+            const eventTime = new Date(event.eventtime);
+            const offsets = JSON.parse(event.reminderoffsets);
+            let sentReminders = [];
+            try {
+                sentReminders = JSON.parse(event.sentreminders || '[]');
+            } catch (e) {
+                sentReminders = [];
             }
-        });
 
-        if (updated) {
-            const updateStmt = db.prepare('UPDATE events SET sentReminders = ? WHERE id = ?');
-            updateStmt.run(JSON.stringify(sentReminders), event.id);
+            let updated = false;
+
+            offsets.forEach(offsetMinutes => {
+                // Check if already sent
+                if (sentReminders.includes(offsetMinutes)) return;
+
+                const reminderTime = new Date(eventTime.getTime() - offsetMinutes * 60000);
+                const timeDiff = now.getTime() - reminderTime.getTime();
+
+                // Logic: If time has passed (timeDiff > 0) AND it's not too old
+                if (timeDiff >= 0 && timeDiff < 86400000) {
+                    sendReminder(event, offsetMinutes);
+                    sentReminders.push(offsetMinutes);
+                    updated = true;
+                }
+            });
+
+            if (updated) {
+                await db.query('UPDATE events SET sentreminders = $1 WHERE id = $2', [JSON.stringify(sentReminders), event.id]);
+            }
         }
+    } catch (err) {
+        console.error("Error checking reminders:", err);
     }
 }
 
 async function sendReminder(event, offsetMinutes) {
     try {
-        const channel = await client.channels.fetch(event.channelId);
+        const channel = await client.channels.fetch(event.channelid);
         if (channel) {
             let message = `🔔 **Rappel !**\n${event.description}\n`;
             if (offsetMinutes === 0) {
