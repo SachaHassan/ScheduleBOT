@@ -2,9 +2,13 @@
   "name": "schedulebot",
   "version": "1.0.0",
   "main": "index.js",
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node deploy-commands.js && node index.js"
+    "build": "node deploy-commands.js",
+    "start": "node index.js"
   },
   "keywords": [],
   "author": "",
