@@ -12,3 +12,5 @@ services:
         sync: false
       - key: GUILD_ID
         sync: false
+      - key: NODE_VERSION
+        value: 22.11.0
