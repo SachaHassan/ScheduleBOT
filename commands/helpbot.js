@@ -35,16 +35,7 @@ module.exports = {
                     name: '🗓️ `/myplanning`',
                     value:
                         '**Ton planning personnel** — Événements où tu es créateur ou cible.\n' +
-                        '• `/myplanning joueur:@quelquun` — Voir le planning d\'un autre joueur (staff)',
-                },
-                {
-                    name: '🏆 `/roster`',
-                    value:
-                        '**Gestion du roster esport**\n' +
-                        '• `/roster ajouter @joueur gamertag rôle jeu` — Enregistrer un joueur\n' +
-                        '• `/roster liste [jeu]` — Voir tous les joueurs (filtre optionnel par jeu)\n' +
-                        '• `/roster profil @joueur` — Profil + événements du joueur\n' +
-                        '• `/roster retirer @joueur` — Retirer du roster',
+                        '• `/myplanning joueur:@quelquun` — Voir le planning d\'un autre joueur',
                 },
                 {
                     name: '🌐 API Web (Futur Dashboard)',

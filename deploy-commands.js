@@ -21,14 +21,24 @@ const rest = new REST().setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
     try {
-        console.log(`\n🔄 Enregistrement de ${commands.length} commande(s) slash (global)...`);
+        const guildId = process.env.GUILD_ID;
 
-        const data = await rest.put(
-            Routes.applicationCommands(process.env.CLIENT_ID),
-            { body: commands }
-        );
+        if (guildId) {
+            console.log(`\n🔄 Enregistrement INSTANTANÉ de ${commands.length} commande(s) sur le serveur (${guildId})...`);
+            const data = await rest.put(
+                Routes.applicationGuildCommands(process.env.CLIENT_ID, guildId),
+                { body: commands }
+            );
+            console.log(`✅ ${data.length} commande(s) enregistrée(s) instantanément sur le serveur !\n`);
+        } else {
+            console.log(`\n🔄 Enregistrement de ${commands.length} commande(s) slash (global)...`);
+            const data = await rest.put(
+                Routes.applicationCommands(process.env.CLIENT_ID),
+                { body: commands }
+            );
+            console.log(`✅ ${data.length} commande(s) enregistrée(s) avec succès (propagation globale en cours) !\n`);
+        }
 
-        console.log(`✅ ${data.length} commande(s) enregistrée(s) avec succès !\n`);
         process.exit(0);
     } catch (error) {
         console.error('❌ Erreur lors de l\'enregistrement des commandes:', error);
