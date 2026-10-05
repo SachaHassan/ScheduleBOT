@@ -22,6 +22,34 @@ const requireApiKey = (req, res, next) => {
 
 // ─── Public Routes ───────────────────────────────────────────────────────────
 
+/** Root page — human-readable status */
+app.get('/', (req, res) => {
+    res.send(`<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>ScheduleBOT — Esport Edition</title>
+  <style>
+    body { font-family: sans-serif; background: #2c2f33; color: #fff; display:flex; align-items:center; justify-content:center; height:100vh; margin:0; }
+    .card { background: #23272a; border-radius: 12px; padding: 40px 60px; text-align:center; box-shadow: 0 4px 20px rgba(0,0,0,0.4); }
+    h1 { color: #7289da; margin-bottom: 8px; }
+    .status { color: #43b581; font-size: 1.2em; margin: 16px 0; }
+    .meta { color: #99aab5; font-size: 0.9em; }
+    a { color: #7289da; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🏆 ScheduleBOT</h1>
+    <p>Esport Edition — Discord Scheduler</p>
+    <p class="status">✅ En ligne depuis ${Math.floor(process.uptime())}s</p>
+    <p class="meta">API : <a href="/api/health">/api/health</a></p>
+    <p class="meta">Dashboard web à venir...</p>
+  </div>
+</body>
+</html>`);
+});
+
 /** Health check — used by UptimeRobot to keep the bot alive on Render free plan */
 app.get('/api/health', (req, res) => {
     res.json({
