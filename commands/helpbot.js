@@ -3,37 +3,64 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('helpbot')
-        .setDescription('Affiche le guide d\'utilisation du bot'),
+        .setDescription('Affiche le guide complet de ScheduleBOT'),
+
     async execute(interaction) {
         const embed = new EmbedBuilder()
-            .setColor(0x0099FF)
-            .setTitle('📖 Guide d\'utilisation de ScheduleBOT')
-            .setDescription('Voici comment planifier vos événements simplement !')
+            .setColor(0x7289DA)
+            .setTitle('📖 ScheduleBOT v2 — Esport Edition')
+            .setDescription('Bot de planification pour structures esport. Toutes les données sont persistées en base de données.')
             .addFields(
-                { name: '📅 Commande principale', value: '`/schedule`' },
                 {
-                    name: '✍️ Format des Dates',
-                    value: 'Le bot comprend le langage naturel (grâce à Chrono) :\n' +
-                        '• "Demain à 18h"\n' +
-                        '• "Lundi prochain à 9h30"\n' +
-                        '• "Le 25 décembre à midi"\n' +
-                        '• "Dans 2 heures"'
+                    name: '📅 `/schedule`',
+                    value:
+                        '**Planifier un événement**\n' +
+                        '• **Types** : 🏋️ Entraînement · ⚔️ Scrim · 🏆 Tournoi · 📋 Réunion · 📅 Général\n' +
+                        '• **Dates** : langage naturel — *"demain à 20h"*, *"lundi 18h30"*, *"15 octobre 19h"*\n' +
+                        '• **Rappels** : *"1j, 2h, 30m"* = rappel 1 jour avant, 2h avant, 30min avant\n' +
+                        '• **Cible** : @rôle, @utilisateur, ou `everyone:Oui` pour @everyone',
                 },
                 {
-                    name: '⏰ Format des Rappels',
-                    value: 'Vous pouvez définir plusieurs rappels séparés par des virgules :\n' +
-                        '• `10m` (10 minutes avant)\n' +
-                        '• `1h, 30m` (1 heure avant ET 30 minutes avant)\n' +
-                        '• `1j` (1 jour avant)\n' +
-                        '*Si vous laissez vide, aucun rappel "avant" ne sera envoyé, juste au moment de l\'événement.*'
+                    name: '📋 `/list`',
+                    value:
+                        '**Planning du serveur** — Tous les événements à venir avec pagination.\n' +
+                        'Affiche statut des rappels (⏳ en attente · ✅ envoyés)',
                 },
                 {
-                    name: '🎯 Cible',
-                    value: '• **@everyone** : Mentionne tout le serveur (attention !)\n' +
-                        '• **Vide** : Ne mentionne personne (vous recevez le ping si c\'est vous qui l\'avez créé, ou juste un message dans le channel).'
-                }
+                    name: '🗑️ `/cancel`',
+                    value:
+                        '**Annuler un de tes événements** — Menu déroulant pour choisir, puis confirmation.',
+                },
+                {
+                    name: '🗓️ `/myplanning`',
+                    value:
+                        '**Ton planning personnel** — Événements où tu es créateur ou cible.\n' +
+                        '• `/myplanning joueur:@quelquun` — Voir le planning d\'un autre joueur (staff)',
+                },
+                {
+                    name: '🏆 `/roster`',
+                    value:
+                        '**Gestion du roster esport**\n' +
+                        '• `/roster ajouter @joueur gamertag rôle jeu` — Enregistrer un joueur\n' +
+                        '• `/roster liste [jeu]` — Voir tous les joueurs (filtre optionnel par jeu)\n' +
+                        '• `/roster profil @joueur` — Profil + événements du joueur\n' +
+                        '• `/roster retirer @joueur` — Retirer du roster',
+                },
+                {
+                    name: '🌐 API Web (Futur Dashboard)',
+                    value:
+                        'Le bot expose une API REST pour le futur dashboard :\n' +
+                        '• `GET /api/health` — Statut du bot\n' +
+                        '• `GET /api/events?guild_id=xxx` — Tous les événements\n' +
+                        '• `GET /api/players?guild_id=xxx` — Roster complet\n' +
+                        '• `GET /api/players/:id/events?guild_id=xxx` — Planning d\'un joueur',
+                },
+                {
+                    name: '🔧 `/debug-time`',
+                    value: 'Afficher l\'heure du serveur (debug timezone)',
+                },
             )
-            .setFooter({ text: 'ScheduleBOT - Votre assistant planning' });
+            .setFooter({ text: 'ScheduleBOT v2 — Esport Edition • Données persistées sur PostgreSQL' });
 
         await interaction.reply({ embeds: [embed], ephemeral: true });
     },

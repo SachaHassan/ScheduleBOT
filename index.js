@@ -3,20 +3,25 @@ const fs = require('fs');
 const path = require('path');
 const { Client, Collection, GatewayIntentBits, Events } = require('discord.js');
 const db = require('./db');
-const http = require('http');
+const app = require('./api/server');
 
-const server = http.createServer((req, res) => {
-    res.writeHead(200);
-    res.end('Bot is alive!');
+const PORT = process.env.PORT || 3000;
+
+// ─── REST API Server ─────────────────────────────────────────────────────────
+// Serves the dashboard API AND acts as the keepalive endpoint for UptimeRobot
+app.listen(PORT, () => {
+    console.log(`🌐 API server démarré sur le port ${PORT}`);
+    console.log(`   → Health check : GET /api/health`);
 });
 
-server.listen(process.env.PORT || 3000);
+// ─── Discord Client ──────────────────────────────────────────────────────────
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
-
 client.commands = new Collection();
+
+// Load all command files
 const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
 
 for (const file of commandFiles) {
     const filePath = path.join(commandsPath, file);
@@ -24,108 +29,151 @@ for (const file of commandFiles) {
     if ('data' in command && 'execute' in command) {
         client.commands.set(command.data.name, command);
     } else {
-        console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "execute" property.`);
+        console.warn(`[WARNING] ${filePath} — propriété "data" ou "execute" manquante, ignoré.`);
     }
 }
 
+// ─── Events ──────────────────────────────────────────────────────────────────
+
 client.once(Events.ClientReady, c => {
-    console.log(`Ready! Logged in as ${c.user.tag}`);
-    // Start the reminder loop
+    console.log(`\n✅ Bot Discord connecté en tant que ${c.user.tag}`);
+    // Start reminder loop immediately then every minute
     checkReminders();
-    setInterval(checkReminders, 60 * 1000); // Check every minute
+    setInterval(checkReminders, 60 * 1000);
+    // Cleanup old events every 6 hours
+    setInterval(() => db.cleanupOldEvents().catch(console.error), 6 * 60 * 60 * 1000);
+});
+
+client.on(Events.Error, err => {
+    console.error('❌ Discord client error:', err);
 });
 
 client.on(Events.InteractionCreate, async interaction => {
-    if (!interaction.isChatInputCommand()) return;
-
-    const command = interaction.client.commands.get(interaction.commandName);
-
-    if (!command) {
-        console.error(`No command matching ${interaction.commandName} was found.`);
-        return;
-    }
-
     try {
-        await command.execute(interaction);
-    } catch (error) {
-        console.error(error);
-        if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ content: 'There was an error while executing this command!', ephemeral: true });
-        } else {
-            await interaction.reply({ content: 'There was an error while executing this command!', ephemeral: true });
+        // ── Slash Commands ──
+        if (interaction.isChatInputCommand()) {
+            const command = client.commands.get(interaction.commandName);
+            if (!command) return;
+            await command.execute(interaction, client);
+            return;
         }
+
+        // ── Select Menus ──
+        if (interaction.isStringSelectMenu()) {
+            if (interaction.customId.startsWith('cancel_')) {
+                const cmd = client.commands.get('cancel');
+                if (cmd?.handleSelect) await cmd.handleSelect(interaction);
+            }
+            return;
+        }
+
+        // ── Buttons ──
+        if (interaction.isButton()) {
+            if (interaction.customId.startsWith('cancel_')) {
+                const cmd = client.commands.get('cancel');
+                if (cmd?.handleButton) await cmd.handleButton(interaction);
+            }
+            if (interaction.customId.startsWith('list_')) {
+                const cmd = client.commands.get('list');
+                if (cmd?.handleButton) await cmd.handleButton(interaction);
+            }
+            return;
+        }
+    } catch (err) {
+        console.error(`Erreur interaction (${interaction.type}):`, err);
+        const reply = { content: '❌ Une erreur est survenue.', ephemeral: true };
+        try {
+            if (interaction.replied || interaction.deferred) await interaction.followUp(reply);
+            else await interaction.reply(reply);
+        } catch { /* ignore */ }
     }
 });
 
+// ─── Reminder Logic ───────────────────────────────────────────────────────────
+
+const EVENT_TYPE_EMOJI = {
+    training: '🏋️', scrim: '⚔️', tournament: '🏆', meeting: '📋', general: '📅'
+};
+
+function formatOffset(minutes) {
+    if (minutes === 0) return "à l'heure J";
+    if (minutes < 60) return `${minutes} min`;
+    if (minutes < 1440) return `${Math.floor(minutes / 60)}h`;
+    return `${Math.floor(minutes / 1440)}j`;
+}
+
 async function checkReminders() {
-    console.log('Checking for reminders...');
-    const now = new Date();
-
     try {
-        // Get all events
-        const res = await db.query('SELECT * FROM events');
-        const events = res.rows;
+        const res = await db.getEventsForReminders();
+        const now = Date.now();
 
-        for (const event of events) {
-            // PostgreSQL columns are lowercase by default
-            const eventTime = new Date(event.eventtime);
-            const offsets = JSON.parse(event.reminderoffsets);
-            let sentReminders = [];
-            try {
-                sentReminders = JSON.parse(event.sentreminders || '[]');
-            } catch (e) {
-                sentReminders = [];
-            }
+        for (const event of res.rows) {
+            const eventTime = new Date(event.event_time).getTime();
+            let offsets;
+            try { offsets = JSON.parse(event.reminder_offsets); } catch { offsets = [0]; }
+            let sentReminders;
+            try { sentReminders = JSON.parse(event.sent_reminders || '[]'); } catch { sentReminders = []; }
 
             let updated = false;
+            for (const offsetMinutes of offsets) {
+                if (sentReminders.includes(offsetMinutes)) continue;
 
-            offsets.forEach(offsetMinutes => {
-                // Check if already sent
-                if (sentReminders.includes(offsetMinutes)) return;
+                const reminderTime = eventTime - offsetMinutes * 60_000;
+                const diff = now - reminderTime;
 
-                const reminderTime = new Date(eventTime.getTime() - offsetMinutes * 60000);
-                const timeDiff = now.getTime() - reminderTime.getTime();
-
-                // Logic: If time has passed (timeDiff > 0) AND it's not too old
-                if (timeDiff >= 0 && timeDiff < 86400000) {
-                    sendReminder(event, offsetMinutes);
+                // Fire if due and not more than 5 minutes stale (handles bot restart gaps)
+                if (diff >= 0 && diff < 5 * 60_000) {
+                    await sendReminder(event, offsetMinutes);
                     sentReminders.push(offsetMinutes);
                     updated = true;
                 }
-            });
+            }
 
             if (updated) {
-                await db.query('UPDATE events SET sentreminders = $1 WHERE id = $2', [JSON.stringify(sentReminders), event.id]);
+                await db.updateSentReminders(event.id, sentReminders);
             }
         }
     } catch (err) {
-        console.error("Error checking reminders:", err);
+        console.error('Erreur checkReminders:', err);
     }
 }
 
 async function sendReminder(event, offsetMinutes) {
     try {
-        const channel = await client.channels.fetch(event.channelid);
-        if (channel) {
-            let message = `🔔 **Rappel !**\n${event.description}\n`;
-            if (offsetMinutes === 0) {
-                message += `C'est maintenant !`;
-            } else {
-                message += `Dans ${offsetMinutes} minutes !`;
-            }
+        const channel = await client.channels.fetch(event.channel_id);
+        if (!channel) return;
 
-            let content = message;
-            if (event.target === 'everyone') {
-                content = `@everyone ${message}`;
-            } else {
-                content = `<@${event.target}> ${message}`;
-            }
+        const emoji = EVENT_TYPE_EMOJI[event.event_type] || '📅';
+        const dateStr = new Date(event.event_time).toLocaleString('fr-FR', {
+            timeZone: 'Europe/Paris', dateStyle: 'full', timeStyle: 'short'
+        });
 
-            await channel.send(content);
-        }
+        let pingStr;
+        if (event.target_type === 'everyone')     pingStr = '@everyone';
+        else if (event.target_type === 'role')    pingStr = `<@&${event.target_id}>`;
+        else                                       pingStr = `<@${event.target_id}>`;
+
+        const timeLabel = offsetMinutes === 0
+            ? `🚨 **C'est maintenant !**`
+            : `⏰ Dans **${formatOffset(offsetMinutes)}** !`;
+
+        const lines = [
+            pingStr,
+            `${emoji} **${event.title}**`,
+            timeLabel,
+            `📅 ${dateStr}`,
+        ];
+        if (event.description) lines.push(`📝 ${event.description}`);
+
+        await channel.send({
+            content: lines.join('\n'),
+            allowedMentions: { parse: ['everyone', 'roles', 'users'] }
+        });
     } catch (error) {
-        console.error('Failed to send reminder:', error);
+        console.error(`Erreur envoi rappel event #${event.id}:`, error);
     }
 }
+
+// ─── Login ───────────────────────────────────────────────────────────────────
 
 client.login(process.env.DISCORD_TOKEN);

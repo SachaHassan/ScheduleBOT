@@ -3,14 +3,21 @@ services:
     name: schedulebot
     env: node
     plan: free
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    # deploy-commands runs once at BUILD time, not on every restart
+    buildCommand: npm install && node deploy-commands.js
+    startCommand: node index.js
     envVars:
       - key: DISCORD_TOKEN
         sync: false
       - key: CLIENT_ID
         sync: false
-      - key: GUILD_ID
+      - key: DATABASE_URL
         sync: false
+      - key: API_SECRET
+        sync: false
+      - key: PORT
+        value: "3000"
+      - key: NODE_ENV
+        value: production
       - key: NODE_VERSION
         value: 22.11.0

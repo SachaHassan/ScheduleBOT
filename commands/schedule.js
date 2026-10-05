@@ -1,105 +1,187 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, EmbedBuilder, Role } = require('discord.js');
 const db = require('../db');
 const chrono = require('chrono-node');
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+
+const EVENT_TYPES = {
+    training:   { label: 'Entraînement', emoji: '🏋️', color: 0x00AA00 },
+    scrim:      { label: 'Scrim',        emoji: '⚔️',  color: 0xFF6600 },
+    tournament: { label: 'Tournoi',      emoji: '🏆',  color: 0xFFD700 },
+    meeting:    { label: 'Réunion',      emoji: '📋',  color: 0x0099FF },
+    general:    { label: 'Général',      emoji: '📅',  color: 0x7289DA },
+};
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function parseReminders(input) {
+    const reminders = [];
+    const parts = input.split(',').map(s => s.trim().toLowerCase());
+    for (const part of parts) {
+        const match = part.match(/^(\d+)\s*(j|d|jour|jours|h|heure|heures|m|min|minute|minutes)?$/);
+        if (match) {
+            const val = parseInt(match[1]);
+            const unit = match[2] || 'm';
+            let minutes;
+            if (['j', 'd', 'jour', 'jours'].includes(unit)) minutes = val * 1440;
+            else if (['h', 'heure', 'heures'].includes(unit))  minutes = val * 60;
+            else                                                minutes = val;
+            reminders.push(minutes);
+        }
+    }
+    return reminders.length > 0 ? [...new Set(reminders)].sort((a, b) => b - a) : [0];
+}
+
+function formatOffset(minutes) {
+    if (minutes === 0) return "au moment de l'événement";
+    if (minutes < 60)   return `${minutes} min avant`;
+    if (minutes < 1440) return `${Math.floor(minutes / 60)}h avant`;
+    return `${Math.floor(minutes / 1440)}j avant`;
+}
+
+// ─── Command ─────────────────────────────────────────────────────────────────
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('schedule')
-        .setDescription('Planifie un événement')
-        .addStringOption(option =>
-            option.setName('description')
-                .setDescription('Description de l\'événement')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('date')
-                .setDescription('Date de l\'événement (ex: "demain à 18h", "15 décembre 2025")')
-                .setRequired(true))
-        .addStringOption(option =>
-            option.setName('reminders')
-                .setDescription('Rappels (ex: "1d, 1h, 0m" pour 1j avant, 1h avant, et maintenant)')
-                .setRequired(false))
-        .addMentionableOption(option =>
-            option.setName('cible')
-                .setDescription('Qui pinger ? (Laissez vide pour vous-même, ou mettez @everyone)')
-                .setRequired(false)),
+        .setDescription('Planifie un événement pour ton équipe esport')
+        .addStringOption(o => o
+            .setName('titre')
+            .setDescription('Nom de l\'événement (ex: "Scrim vs Team Alpha")')
+            .setRequired(true)
+            .setMaxLength(100))
+        .addStringOption(o => o
+            .setName('type')
+            .setDescription('Type d\'événement')
+            .setRequired(true)
+            .addChoices(
+                { name: '🏋️ Entraînement', value: 'training' },
+                { name: '⚔️  Scrim',        value: 'scrim'    },
+                { name: '🏆 Tournoi',       value: 'tournament'},
+                { name: '📋 Réunion',       value: 'meeting'  },
+                { name: '📅 Général',       value: 'general'  },
+            ))
+        .addStringOption(o => o
+            .setName('date')
+            .setDescription('Date/heure (ex: "demain à 20h", "lundi 18h30", "15 octobre 19h")')
+            .setRequired(true))
+        .addStringOption(o => o
+            .setName('rappels')
+            .setDescription('Rappels avant l\'event (ex: "1j, 2h, 30m"). Défaut : juste au moment J')
+            .setRequired(false))
+        .addStringOption(o => o
+            .setName('description')
+            .setDescription('Détails supplémentaires (adversaire, map pool, lien…)')
+            .setRequired(false)
+            .setMaxLength(500))
+        .addMentionableOption(o => o
+            .setName('cible')
+            .setDescription('Qui pinger ? (@rôle ou @utilisateur). Vide = vous-même')
+            .setRequired(false))
+        .addBooleanOption(o => o
+            .setName('everyone')
+            .setDescription('Pinger @everyone ? (remplace la cible)')
+            .setRequired(false)),
+
     async execute(interaction) {
-        const description = interaction.options.getString('description');
-        const dateInput = interaction.options.getString('date');
-        const remindersInput = interaction.options.getString('reminders') || "0m";
-        const targetOption = interaction.options.getMentionable('cible');
+        await interaction.deferReply();
 
-        // Parse date
-        const parseDate = chrono.fr.parseDate(dateInput); // Using French locale
-        if (!parseDate) {
-            return interaction.reply({ content: `Je n'ai pas compris la date : "${dateInput}". Essayez un format comme "demain à 20h".`, ephemeral: true });
+        const titre       = interaction.options.getString('titre');
+        const type        = interaction.options.getString('type');
+        const dateInput   = interaction.options.getString('date');
+        const rappelsInput = interaction.options.getString('rappels') || '0m';
+        const descDetail  = interaction.options.getString('description') || '';
+        const cible       = interaction.options.getMentionable('cible');
+        const pingEveryone = interaction.options.getBoolean('everyone') ?? false;
+
+        // ── Parse date ──
+        const parsedDate = chrono.fr.parseDate(dateInput, new Date(), { forwardDate: true });
+        if (!parsedDate) {
+            return interaction.editReply({
+                content: `❌ Date non reconnue : **"${dateInput}"**\n` +
+                         `Essayez : "demain à 20h", "lundi 18h30", "15 octobre 19h"`,
+            });
+        }
+        if (parsedDate < new Date()) {
+            return interaction.editReply({
+                content: `❌ La date est dans le passé (**${parsedDate.toLocaleString('fr-FR')}**).\nVérifiez et réessayez.`,
+            });
         }
 
-        // Parse reminders
-        // Expected format: numbers followed by d/h/m/j, separated by commas
-        const reminders = [];
-        // If user didn't provide reminders, we default to 0 (at event time) 
-        // but we might want to track this difference for display.
-        const hasRemindersInput = !!remindersInput;
+        // ── Parse reminders ──
+        const reminders = parseReminders(rappelsInput);
 
-        if (hasRemindersInput) {
-            // Flexible parsing: allow spaces, french units (j/h/m/min)
-            const parts = remindersInput.split(',').map(s => s.trim().toLowerCase());
-            for (const part of parts) {
-                // Regex: Number + optional space + unit (d, j, h, m, min...)
-                const match = part.match(/^(\d+)\s*(j|d|jour|jours|h|heure|heures|m|min|minute|minutes)?$/);
-                if (match) {
-                    const val = parseInt(match[1]);
-                    const unit = match[2] || 'm'; // default to minutes if no unit? or strict? let's default 'm' if they just type number
+        // ── Determine target ──
+        let targetType = 'user';
+        let targetId   = interaction.user.id;
 
-                    let minutes = 0;
-                    if (['d', 'j', 'jour', 'jours'].includes(unit)) minutes = val * 24 * 60;
-                    else if (['h', 'heure', 'heures'].includes(unit)) minutes = val * 60;
-                    else minutes = val; // m, min, minutes
-
-                    reminders.push(minutes);
-                }
-            }
-        }
-
-        if (reminders.length === 0) reminders.push(0); // Always ensure at least ping at event time
-
-        // Determine target
-        let targetId;
-        if (targetOption) {
-            if (targetOption.user) {
-                targetId = targetOption.user.id;
-            } else if (targetOption.role) {
-                if (targetOption.role.name === '@everyone') {
-                    targetId = 'everyone';
+        if (pingEveryone) {
+            targetType = 'everyone';
+            targetId   = 'everyone';
+        } else if (cible) {
+            // Role has .hexColor (and no .user), GuildMember/User has .user or .username
+            const isRole = cible instanceof Role || ('hexColor' in cible && !('user' in cible));
+            if (isRole) {
+                // @everyone role has the same ID as the guild
+                if (cible.id === interaction.guildId) {
+                    targetType = 'everyone';
+                    targetId   = 'everyone';
                 } else {
-                    targetId = targetOption.role.id;
+                    targetType = 'role';
+                    targetId   = cible.id;
                 }
+            } else {
+                // GuildMember or User
+                targetType = 'user';
+                targetId   = cible.user?.id ?? cible.id;
             }
-        } else {
-            targetId = interaction.user.id;
         }
 
-        // Insert into DB
-        // Insert into DB
-        await db.query(
-            'INSERT INTO events (userId, description, eventTime, reminderOffsets, target, channelId, sentReminders) VALUES ($1, $2, $3, $4, $5, $6, $7)',
-            [interaction.user.id, description, parseDate.toISOString(), JSON.stringify(reminders), targetId, interaction.channelId, '[]']
-        );
+        // ── Insert to DB ──
+        const result = await db.createEvent({
+            guildId:         interaction.guildId,
+            creatorId:       interaction.user.id,
+            channelId:       interaction.channelId,
+            title:           titre,
+            description:     descDetail,
+            eventType:       type,
+            eventTime:       parsedDate.toISOString(),
+            reminderOffsets: JSON.stringify(reminders),
+            targetType,
+            targetId,
+        });
 
-        // Format display
-        let reminderText = "";
-        const preReminders = reminders.filter(r => r > 0);
-        if (preReminders.length > 0) {
-            reminderText = `\n🔔 Rappels : ${preReminders.map(r => `${r} min`).join(', ')} avant`;
-        } else if (hasRemindersInput) {
-            // User explicitly typed "0" or something that parsed to 0
-            reminderText = "";
-        } else {
-            // Default case (no input) -> Don't show "Rappels" line, or just say basic.
-            // User asked "j'aimerai ne pas afficher un 'Rappel: 0 minutes avant'"
-            // So we show nothing specific about reminders, implying standard behavior.
+        const eventId = result.rows[0].id;
+
+        // ── Reply embed ──
+        const typeInfo = EVENT_TYPES[type] || EVENT_TYPES.general;
+        const dateStr = parsedDate.toLocaleString('fr-FR', {
+            timeZone: 'Europe/Paris', dateStyle: 'full', timeStyle: 'short'
+        });
+
+        let targetDisplay;
+        if (targetType === 'everyone')  targetDisplay = '@everyone';
+        else if (targetType === 'role') targetDisplay = `<@&${targetId}>`;
+        else                            targetDisplay = `<@${targetId}>`;
+
+        const embed = new EmbedBuilder()
+            .setColor(typeInfo.color)
+            .setTitle(`${typeInfo.emoji} Événement planifié — ${typeInfo.label}`)
+            .addFields(
+                { name: '📌 Titre',    value: titre,                              inline: true  },
+                { name: '🆔 ID',       value: `\`#${eventId}\``,                  inline: true  },
+                { name: '\u200b',      value: '\u200b',                            inline: true  },
+                { name: '📅 Date',     value: dateStr,                             inline: false },
+                { name: '⏰ Rappels',  value: reminders.map(formatOffset).join('\n'), inline: true },
+                { name: '🎯 Cible',    value: targetDisplay,                       inline: true  },
+            )
+            .setFooter({ text: `Créé par ${interaction.user.username} • ScheduleBOT v2` })
+            .setTimestamp();
+
+        if (descDetail) {
+            embed.addFields({ name: '📝 Détails', value: descDetail });
         }
 
-        await interaction.reply({ content: ` Événement planifié : **${description}**\n Date : ${parseDate.toLocaleString('fr-FR')}${reminderText}\n Cible : ${targetId === 'everyone' ? '@everyone' : `<@${targetId}>`}` });
+        await interaction.editReply({ embeds: [embed] });
     },
 };

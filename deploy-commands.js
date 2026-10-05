@@ -1,34 +1,37 @@
-const { REST, Routes } = require('discord.js');
-// const { clientId, guildId, token } = require('./config.json'); // Removed as we use dotenv
 require('dotenv').config();
+const { REST, Routes } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
 
 const commands = [];
 const commandsPath = path.join(__dirname, 'commands');
-const commandFiles = fs.readdirSync(commandsPath).filter(file => file.endsWith('.js'));
+const commandFiles = fs.readdirSync(commandsPath).filter(f => f.endsWith('.js'));
 
 for (const file of commandFiles) {
     const command = require(path.join(commandsPath, file));
-    commands.push(command.data.toJSON());
+    if ('data' in command && 'execute' in command) {
+        commands.push(command.data.toJSON());
+        console.log(`  ✅ Commande chargée : ${command.data.name}`);
+    } else {
+        console.warn(`  ⚠️  ${file} — propriété "data" ou "execute" manquante, ignoré.`);
+    }
 }
 
-const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
+const rest = new REST().setToken(process.env.DISCORD_TOKEN);
 
 (async () => {
     try {
-        console.log(`Started refreshing ${commands.length} application (/) commands.`);
+        console.log(`\n🔄 Enregistrement de ${commands.length} commande(s) slash (global)...`);
 
-        // Routes.applicationCommands(clientId) for global commands
-        // or Routes.applicationGuildCommands(clientId, guildId) for guild specific (faster update)
-        // Using global for general purpose as requested.
         const data = await rest.put(
             Routes.applicationCommands(process.env.CLIENT_ID),
-            { body: commands },
+            { body: commands }
         );
 
-        console.log(`Successfully reloaded ${data.length} application (/) commands.`);
+        console.log(`✅ ${data.length} commande(s) enregistrée(s) avec succès !\n`);
+        process.exit(0);
     } catch (error) {
-        console.error(error);
+        console.error('❌ Erreur lors de l\'enregistrement des commandes:', error);
+        process.exit(1);
     }
 })();
