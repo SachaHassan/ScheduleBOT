@@ -7,36 +7,51 @@ const {
     ButtonStyle
 } = require('discord.js');
 const db = require('../db');
+const { getMemberAccess } = require('../utils/permissions');
 
 const EVENT_TYPE_EMOJI = { training: '🏋️', scrim: '⚔️', tournament: '🏆', meeting: '📋', general: '📅' };
 
 module.exports = {
     data: new SlashCommandBuilder()
         .setName('cancel')
-        .setDescription('Annule un de vos événements planifiés'),
+        .setDescription('Annule un événement planifié'),
 
     // ── Step 1 : Show select menu ────────────────────────────────────────────
     async execute(interaction) {
         await interaction.deferReply({ ephemeral: true });
 
-        // Only show events the user CREATED (they can't cancel others' events)
-        const result    = await db.getUserEvents(interaction.guildId, interaction.user.id);
-        const myEvents  = result.rows.filter(e => e.creator_id === interaction.user.id);
-
-        if (myEvents.length === 0) {
+        const access = getMemberAccess(interaction);
+        if (!access.isMember) {
             return interaction.editReply({
-                content: '📭 Tu n\'as aucun événement planifié à annuler.\nUtilise `/schedule` pour en créer un !',
+                content: '⛔ Seuls les membres ayant le rôle **Member** peuvent utiliser cette commande.',
             });
         }
 
-        const options = myEvents.slice(0, 25).map(e => {
+        // Admins can see and cancel all events, others only their own
+        let eventsToCancel = [];
+        if (access.isAdmin) {
+            const result = await db.getUpcomingEvents(interaction.guildId);
+            eventsToCancel = result.rows;
+        } else {
+            const result = await db.getUserEvents(interaction.guildId, interaction.user.id);
+            eventsToCancel = result.rows.filter(e => e.creator_id === interaction.user.id);
+        }
+
+        if (eventsToCancel.length === 0) {
+            return interaction.editReply({
+                content: '📭 Aucun événement planifié à annuler.',
+            });
+        }
+
+        const options = eventsToCancel.slice(0, 25).map(e => {
             const emoji   = EVENT_TYPE_EMOJI[e.event_type] || '📅';
             const dateStr = new Date(e.event_time).toLocaleString('fr-FR', {
                 timeZone: 'Europe/Paris', dateStyle: 'short', timeStyle: 'short'
             });
+            const creatorTag = access.isAdmin && e.creator_id !== interaction.user.id ? ` [par <@${e.creator_id}>]` : '';
             return {
                 label:       `#${e.id} — ${e.title}`.slice(0, 100),
-                description: dateStr.slice(0, 100),
+                description: `${dateStr}${creatorTag}`.slice(0, 100),
                 value:       String(e.id),
                 emoji,
             };
@@ -61,7 +76,8 @@ module.exports = {
         const res     = await db.getEventById(eventId);
         const event   = res.rows[0];
 
-        if (!event || event.creator_id !== interaction.user.id) {
+        const access  = getMemberAccess(interaction);
+        if (!event || (!access.isAdmin && event.creator_id !== interaction.user.id)) {
             return interaction.update({
                 content:    '❌ Événement introuvable ou accès refusé.',
                 components: [],
@@ -113,7 +129,8 @@ module.exports = {
             const res     = await db.getEventById(eventId);
             const event   = res.rows[0];
 
-            if (!event || event.creator_id !== interaction.user.id) {
+            const access  = getMemberAccess(interaction);
+            if (!event || (!access.isAdmin && event.creator_id !== interaction.user.id)) {
                 return interaction.update({
                     content:    '❌ Événement introuvable ou accès refusé.',
                     embeds:     [],

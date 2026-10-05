@@ -1,6 +1,7 @@
 const { SlashCommandBuilder, EmbedBuilder, Role } = require('discord.js');
 const db = require('../db');
 const chrono = require('chrono-node');
+const { getMemberAccess } = require('../utils/permissions');
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -86,6 +87,13 @@ module.exports = {
     async execute(interaction) {
         await interaction.deferReply();
 
+        const access = getMemberAccess(interaction);
+        if (!access.isMember) {
+            return interaction.editReply({
+                content: '⛔ Seuls les membres ayant le rôle **Member** peuvent utiliser le planificateur.',
+            });
+        }
+
         const titre       = interaction.options.getString('titre');
         const type        = interaction.options.getString('type');
         const dateInput   = interaction.options.getString('date');
@@ -93,6 +101,13 @@ module.exports = {
         const descDetail  = interaction.options.getString('description') || '';
         const cible       = interaction.options.getMentionable('cible');
         const pingEveryone = interaction.options.getBoolean('everyone') ?? false;
+
+        // ── Check permissions for targeting @everyone or roles ──
+        if (pingEveryone && !access.isAdmin) {
+            return interaction.editReply({
+                content: '⛔ Seuls les modérateurs/administrateurs peuvent mentionner **@everyone**.',
+            });
+        }
 
         // ── Parse date ──
         const parsedDate = chrono.fr.parseDate(dateInput, new Date(), { forwardDate: true });
@@ -122,8 +137,20 @@ module.exports = {
             // Role has .hexColor (and no .user), GuildMember/User has .user or .username
             const isRole = cible instanceof Role || ('hexColor' in cible && !('user' in cible));
             if (isRole) {
+                // Mentioning roles or everyone requires Manager or Moderator
+                if (!access.isManager) {
+                    return interaction.editReply({
+                        content: '⛔ Seuls les **managers** ou **modérateurs** peuvent programmer un rappel avec mention d\'équipe/rôle.',
+                    });
+                }
+
                 // @everyone role has the same ID as the guild
                 if (cible.id === interaction.guildId) {
+                    if (!access.isAdmin) {
+                        return interaction.editReply({
+                            content: '⛔ Seuls les modérateurs/administrateurs peuvent mentionner **@everyone**.',
+                        });
+                    }
                     targetType = 'everyone';
                     targetId   = 'everyone';
                 } else {
@@ -132,8 +159,15 @@ module.exports = {
                 }
             } else {
                 // GuildMember or User
+                const targetUserId = cible.user?.id ?? cible.id;
+                // If pinging someone else, must be Manager or Moderator
+                if (targetUserId !== interaction.user.id && !access.isManager) {
+                    return interaction.editReply({
+                        content: '⛔ Tu ne peux planifier un rappel que pour toi-même. Seuls les **managers** peuvent assigner des événements à d\'autres membres.',
+                    });
+                }
                 targetType = 'user';
-                targetId   = cible.user?.id ?? cible.id;
+                targetId   = targetUserId;
             }
         }
 

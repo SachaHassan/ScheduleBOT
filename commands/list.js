@@ -6,6 +6,7 @@ const {
     ButtonStyle
 } = require('discord.js');
 const db = require('../db');
+const { getMemberAccess } = require('../utils/permissions');
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
@@ -124,6 +125,13 @@ module.exports = {
 
     async execute(interaction) {
         await interaction.deferReply();
+
+        const access = getMemberAccess(interaction);
+        if (!access.isMember) {
+            return interaction.editReply({
+                content: '⛔ Seuls les membres ayant le rôle **Member** peuvent consulter la liste des événements.',
+            });
+        }
 
         const result     = await db.getUpcomingEvents(interaction.guildId);
         const events     = result.rows;

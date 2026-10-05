@@ -1,5 +1,6 @@
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const db = require('../db');
+const { getMemberAccess } = require('../utils/permissions');
 
 const EVENT_TYPE_EMOJI = { training: '🏋️', scrim: '⚔️', tournament: '🏆', meeting: '📋', general: '📅' };
 const EVENT_TYPE_LABEL = { training: 'Entraînement', scrim: 'Scrim', tournament: 'Tournoi', meeting: 'Réunion', general: 'Général' };
@@ -21,18 +22,27 @@ module.exports = {
         .setDescription('Affiche ton planning personnel (événements où tu es créateur ou cible)')
         .addUserOption(o => o
             .setName('joueur')
-            .setDescription('Voir le planning d\'un autre joueur (staff seulement)')
+            .setDescription('Voir le planning d\'un autre joueur (managers et modérateurs seulement)')
             .setRequired(false)),
 
     async execute(interaction) {
         await interaction.deferReply({ ephemeral: true });
 
+        const access = getMemberAccess(interaction);
+        if (!access.isMember) {
+            return interaction.editReply({
+                content: '⛔ Seuls les membres ayant le rôle **Member** peuvent consulter le planning.',
+            });
+        }
+
         const targetUser    = interaction.options.getUser('joueur') || interaction.user;
         const isOtherPlayer = targetUser.id !== interaction.user.id;
 
-        // TODO: Add role/permission check here for staff-only lookup
-        // const member = await interaction.guild.members.fetch(interaction.user.id);
-        // if (isOtherPlayer && !member.permissions.has('ManageGuild')) { ... }
+        if (isOtherPlayer && !access.isManager) {
+            return interaction.editReply({
+                content: '⛔ Seuls les **managers** ou **modérateurs** peuvent consulter le planning d\'un autre joueur.',
+            });
+        }
 
         const result = await db.getUserEvents(interaction.guildId, targetUser.id);
         const events = result.rows;
